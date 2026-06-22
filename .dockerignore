@@ -1,0 +1,30 @@
+# Keep the build context (and image) small. Build context = repo root.
+
+# Python virtual env & caches — never needed in the image
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Git
+.git/
+.gitignore
+
+# Secrets — never bake .env into the image (compose injects env at runtime)
+.env
+.env.*
+!.env.example
+
+# Local-only test artifacts
+test_audio/
+*.wav
+
+# Docs & the docker/ folder itself aren't runtime dependencies
+docs/
+docker/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

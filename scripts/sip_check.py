@@ -1,10 +1,11 @@
 """Verify the LiveKit Cloud SIP trunk + dispatch rule binding.
 Reads LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET from .env.
 
-    python sip_check.py
+    python scripts/sip_check.py
 """
 import asyncio
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from livekit import api
@@ -13,7 +14,8 @@ from livekit.protocol.sip import (
     ListSIPDispatchRuleRequest,
 )
 
-load_dotenv()
+# Load the project's .env from the repo root (one level up from scripts/).
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # The HTTP API wants https, not wss.
 _url = os.environ.get("LIVEKIT_URL", "").replace("wss://", "https://").replace("ws://", "http://")

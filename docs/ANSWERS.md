@@ -156,7 +156,7 @@ ASCII fallback: `greeting → collecting_party_size → collecting_date → coll
 | unexpected_input / fallback | recover | off-topic / low-confidence | → re-prompt prior state | prompt guard + re-ask |
 | call_ended | hang up, log | goodbye / disconnect | → [*] | shutdown callback writes `call_logs` |
 
-The flow is **prompt-driven** (the system prompt in `prompt.txt` encodes the ordered steps and the "one question at a time / don't re-ask / only confirm after the tool returns" rules) and **tool-gated** (state advances only on real DB results, never on the model's say-so).
+The flow is **prompt-driven** (the system prompt in `prompts/prompt.txt` encodes the ordered steps and the "one question at a time / don't re-ask / only confirm after the tool returns" rules) and **tool-gated** (state advances only on real DB results, never on the model's say-so).
 
 ---
 
@@ -227,7 +227,7 @@ Read each `transcript` turn — compare what the **caller said** (the `caller` t
 - Spell-on-mismatch fallback ("could you spell that for me?").
 
 **4. Verify + fix without downtime:**
-- The name read-back lives in **`prompt.txt`**, which is read at **session start** — edit it and the *next* call uses it, **no redeploy**.
+- The name read-back lives in **`prompts/prompt.txt`**, which is read at **session start** — edit it and the *next* call uses it, **no redeploy**.
 - Correct the wrong rows live (after confirming with guests):
   ```sql
   UPDATE bookings SET customer_name = 'Erin'

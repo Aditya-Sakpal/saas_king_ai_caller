@@ -25,9 +25,9 @@ from livekit.plugins import openai, silero
 
 load_dotenv()
 
-# The agent's persona / rules live in prompt.txt so they can be edited without
-# touching code. Read once at startup, relative to THIS file (works from any cwd).
-INSTRUCTIONS = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
+# The agent's persona / rules live in prompts/prompt.txt so they can be edited
+# without touching code. Read once at startup, relative to THIS file (works from any cwd).
+INSTRUCTIONS = (Path(__file__).parent / "prompts" / "prompt.txt").read_text(encoding="utf-8")
 
 logger = logging.getLogger("spice-garden")
 

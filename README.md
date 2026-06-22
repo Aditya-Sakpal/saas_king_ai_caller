@@ -7,7 +7,7 @@ persisted locally in PostgreSQL.
 
 > **Restaurant:** *Spice Garden* — North Indian + Indo-Chinese · 12:00–23:00 daily · max party 12.
 
-📄 **Design write-ups (Q1–Q3, Q8–Q10, Q12–Q13):** see [`ANSWERS.md`](ANSWERS.md).
+📄 **Design write-ups (Q1–Q3, Q8–Q10, Q12–Q13):** see [`docs/ANSWERS.md`](docs/ANSWERS.md).
 
 ---
 
@@ -37,8 +37,10 @@ persisted locally in PostgreSQL.
 
 ```bash
 cp .env.example .env          # defaults work out of the box for compose
-docker compose up --build
+docker compose -f docker/docker-compose.yml up --build
 ```
+> The compose file lives in `docker/`; run it from the repo root with `-f docker/docker-compose.yml`
+> (its build context and bind mounts already point up to the repo root).
 This brings up **livekit-server, the agent, Ollama (LLM), Whisper (STT), Kokoro (TTS), Postgres**,
 and the dashboard — each with a health check and `depends_on: condition: service_healthy`, plus
 one-shot jobs that pull the Whisper + LLM models. First boot downloads several GB of images/models.
@@ -91,9 +93,38 @@ See [`.env.example`](.env.example). Key ones: `DATABASE_URL`, the `LIVEKIT_*` tr
 WhatsApp, `BACKGROUND_AUDIO=1` for ambience. **Secrets live only in `.env`, which is git-ignored.**
 
 ## Seed data
-[`dashboard/seed.sql`](dashboard/seed.sql) — **18 menu items** (incl. *Rogan Josh*, the lamb dish),
+[`dashboard/sql/seed.sql`](dashboard/sql/seed.sql) — **18 menu items** (incl. *Rogan Josh*, the lamb dish),
 **10 tables**, and **6 bookings** (5 confirmed + 1 cancelled). Reset anytime with
 `python dashboard/init_db.py`.
+
+---
+
+## Repository layout
+
+```
+spice-garden/
+├── agent.py              # LiveKit voice agent worker (VAD → STT → LLM → TTS, tools, call logging)
+├── prompts/
+│   └── prompt.txt        # Aria's persona + conversation rules (read at startup)
+├── dashboard/            # FastAPI web app
+│   ├── app.py            #   routes: admin (/), call log (/calls, /calls/{id})
+│   ├── db.py             #   PostgreSQL connection helper
+│   ├── init_db.py        #   create schema + load seed data
+│   ├── sql/              #   schema.sql + seed.sql
+│   └── templates/        #   admin.html, calls.html, call_detail.html
+├── scripts/              # one-off operational tools
+│   ├── sip_check.py      #   verify LiveKit Cloud SIP trunk + dispatch rule
+│   └── stress_test.py    #   B3 concurrency stress test → writes docs/STRESS_TEST.md
+├── docs/                 # design write-ups
+│   ├── ANSWERS.md        #   Q1–Q3, Q8–Q10, Q12–Q13
+│   └── STRESS_TEST.md    #   stress-test results
+├── docker/
+│   ├── docker-compose.yml  # full self-hosted stack (run: docker compose -f docker/docker-compose.yml up)
+│   └── Dockerfile          # shared image for the agent worker + dashboard
+├── .dockerignore         # keeps .venv/.git/etc. out of the build context
+├── requirements.txt
+└── .env.example
+```
 
 ---
 
@@ -101,28 +132,28 @@ WhatsApp, `BACKGROUND_AUDIO=1` for ambience. **Secrets live only in `.env`, whic
 
 | Feature | Status | Where |
 |---|---|---|
-| **Q1** System architecture diagram + protocols + retry + LLM-failure | ✅ Done | `ANSWERS.md` |
-| **Q2** Component selection justification | ✅ Done | `ANSWERS.md` |
-| **Q3** Latency budget | ✅ Done | `ANSWERS.md` |
+| **Q1** System architecture diagram + protocols + retry + LLM-failure | ✅ Done | `docs/ANSWERS.md` |
+| **Q2** Component selection justification | ✅ Done | `docs/ANSWERS.md` |
+| **Q3** Latency budget | ✅ Done | `docs/ANSWERS.md` |
 | **Q4** Agent: full booking flow, menu, DB availability, VAD, interruptions, turn events, logging | ✅ Done | `agent.py` |
-| **Q5** System prompt + ≥3 typed tool schemas (4 tools) | ✅ Done | `prompt.txt`, `agent.py` |
-| **Q6** Call logging + transcript storage (atomic) | ✅ Done | `dashboard/schema.sql`, `agent.py` (`CallLogger`) |
-| **Q7** `docker compose up` (all services, health checks, depends_on) | ✅ Done* | `docker-compose.yml`, `Dockerfile` |
-| **Q8** Booking state machine | ✅ Done | `ANSWERS.md` |
-| **Q9** Edge-case handling | ✅ Done | `ANSWERS.md` |
-| **Q10** Complex-utterance walkthrough | ✅ Done | `ANSWERS.md` |
+| **Q5** System prompt + ≥3 typed tool schemas (4 tools) | ✅ Done | `prompts/prompt.txt`, `agent.py` |
+| **Q6** Call logging + transcript storage (atomic) | ✅ Done | `dashboard/sql/schema.sql`, `agent.py` (`CallLogger`) |
+| **Q7** `docker compose up` (all services, health checks, depends_on) | ✅ Done* | `docker/docker-compose.yml`, `docker/Dockerfile` |
+| **Q8** Booking state machine | ✅ Done | `docs/ANSWERS.md` |
+| **Q9** Edge-case handling | ✅ Done | `docs/ANSWERS.md` |
+| **Q10** Complex-utterance walkthrough | ✅ Done | `docs/ANSWERS.md` |
 | **Q11** Call-log dashboard (calls, transcripts, latency chart, 7-day success) | ✅ Done | `dashboard/app.py`, `templates/calls.html`, `call_detail.html` |
-| **Q12** Observability / metrics design | ✅ Done | `ANSWERS.md` |
-| **Q13** Debugging scenario (Aaron/Erin) | ✅ Done | `ANSWERS.md` |
-| Seed file (SQL) | ✅ Done | `dashboard/seed.sql` |
+| **Q12** Observability / metrics design | ✅ Done | `docs/ANSWERS.md` |
+| **Q13** Debugging scenario (Aaron/Erin) | ✅ Done | `docs/ANSWERS.md` |
+| Seed file (SQL) | ✅ Done | `dashboard/sql/seed.sql` |
 | README + setup + self-assessment | ✅ Done | this file |
 | **Bonus B2** Post-call notifications (WhatsApp + email PDF) | ✅ Done | `send_whatsapp` + `send_manager_email`/`build_call_pdf` in `agent.py` |
 | **Bonus B1** Multilingual (auto-detect + per-turn language labels) | 🟡 Partial | Whisper auto-detect + LLM in-language + transcript language labels ✅; Kokoro TTS has no Telugu/Tamil voice, so spoken output is English/Hindi only (set `STT_LANGUAGE=""` + a multilingual `STT_MODEL`, and `TTS_VOICE=hf_alpha` for Hindi) |
-| **Bonus B3** Concurrency stress test (20 concurrent calls) | ✅ Done | `stress_test.py`, `STRESS_TEST.md` |
+| **Bonus B3** Concurrency stress test (20 concurrent calls) | ✅ Done | `scripts/stress_test.py`, `docs/STRESS_TEST.md` |
 | Loom video | ⏺️ To record | — |
 
-\* `docker-compose.yml` is validated (`docker compose config` passes); a full `up` pulls several GB
-of images/models so it's the run-path rather than something executed in CI.
+\* `docker/docker-compose.yml` is validated (`docker compose -f docker/docker-compose.yml config`
+passes); a full `up` pulls several GB of images/models so it's the run-path rather than something executed in CI.
 
 ## Known limitations / honest notes
 - **LLM reliability:** `qwen2.5:3b` is marginal at tool-calling (occasionally narrates "let me check"

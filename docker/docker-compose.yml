@@ -1,6 +1,9 @@
 name: spice-garden
 
-# Fully self-hosted stack: `docker compose up` brings up every component.
+# Fully self-hosted stack: brings up every component.
+# This file lives in docker/, so all host paths are relative to docker/ — that's why
+# the build context and bind mounts point up one level (..) to the repo root.
+# Run it from the repo root:  docker compose -f docker/docker-compose.yml up --build
 # (The live PHONE demo additionally used LiveKit Cloud as the SIP pipe — see README.
 #  This compose is the no-cloud variant: a self-hosted livekit-server you connect a
 #  web client to, with all STT/LLM/TTS staying local.)
@@ -15,8 +18,8 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./dashboard/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
-      - ./dashboard/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+      - ../dashboard/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ../dashboard/sql/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
     ports:
       - "5433:5432"   # host 5433 to avoid clashing with a native Postgres on 5432
     healthcheck:
@@ -104,7 +107,9 @@ services:
 
   # ─────────────── The voice agent worker ───────────────
   agent:
-    build: .
+    build:
+      context: ..                      # repo root (this file lives in docker/)
+      dockerfile: docker/Dockerfile
     command: python agent.py start
     depends_on:
       postgres:    { condition: service_healthy }
@@ -136,7 +141,9 @@ services:
 
   # ─────────────── Admin + call-log dashboard ───────────────
   dashboard:
-    build: .
+    build:
+      context: ..                      # repo root (this file lives in docker/)
+      dockerfile: docker/Dockerfile
     command: python dashboard/app.py
     ports:
       - "8001:8001"

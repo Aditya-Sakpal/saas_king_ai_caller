@@ -32,5 +32,5 @@ A single box comfortably handles ~2–4 truly-concurrent calls; beyond that, lat
 
 ### Reproduce
 ```bash
-python stress_test.py --concurrency 20 --rounds 2
+python scripts/stress_test.py --concurrency 20 --rounds 2
 ```

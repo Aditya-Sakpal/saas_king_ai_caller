@@ -22,9 +22,9 @@ def run_sql_file(cur, path: Path) -> None:
 def main() -> None:
     with get_conn() as conn, conn.cursor() as cur:
         print("Applying schema.sql ...")
-        run_sql_file(cur, HERE / "schema.sql")
+        run_sql_file(cur, HERE / "sql" / "schema.sql")
         print("Applying seed.sql ...")
-        run_sql_file(cur, HERE / "seed.sql")
+        run_sql_file(cur, HERE / "sql" / "seed.sql")
         conn.commit()
 
     with get_conn() as conn, conn.cursor() as cur:

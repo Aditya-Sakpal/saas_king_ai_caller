@@ -3,10 +3,10 @@
 Fires N concurrent "calls" (each call = one STT + one LLM + one TTS request) at the
 local services and reports latency percentiles + peak per-service resource usage.
 
-    python stress_test.py --concurrency 20 --rounds 2
+    python scripts/stress_test.py --concurrency 20 --rounds 2
 
 Requires the self-hosted services to be running (speaches:8000, ollama:11434, kokoro:8880).
-Writes a results table to STRESS_TEST.md.
+Writes a results table to docs/STRESS_TEST.md.
 """
 import argparse
 import asyncio
@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 import psutil
@@ -169,9 +170,10 @@ async def main(concurrency, rounds):
     report = "\n".join(lines) + "\n"
 
     print("\n" + report)
-    with open("STRESS_TEST.md", "w", encoding="utf-8") as f:
-        f.write(report)
-    print("Wrote STRESS_TEST.md")
+    # Always write to docs/STRESS_TEST.md (repo root is one level up from scripts/).
+    out_path = Path(__file__).resolve().parent.parent / "docs" / "STRESS_TEST.md"
+    out_path.write_text(report, encoding="utf-8")
+    print(f"Wrote {out_path}")
 
 
 if __name__ == "__main__":
