@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import asyncio
 import json
 import uuid
 import hashlib
@@ -67,6 +68,77 @@ async def send_whatsapp(body: str) -> bool:
         return False
 
 
+def _latin1(s: str) -> str:
+    """fpdf core fonts are latin-1; replace unsupported glyphs so the PDF never crashes."""
+    return (s or "").encode("latin-1", "replace").decode("latin-1")
+
+
+def build_call_pdf(call_log) -> bytes:
+    """Render a one-page call summary (booking details + full transcript) as PDF bytes."""
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "Spice Garden - Call Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for label, val in [("Call ID", call_log.call_id), ("Caller", call_log.caller_id),
+                       ("Outcome", call_log.outcome)]:
+        pdf.cell(0, 6, _latin1(f"{label}: {val}"), new_x="LMARGIN", new_y="NEXT")
+    if getattr(call_log, "booking_summary", None):
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, "Booking", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 10)
+        for k, v in call_log.booking_summary.items():
+            pdf.cell(0, 6, _latin1(f"{k}: {v}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Transcript", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for t in call_log._turns:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(pdf.epw, 6, _latin1(f"[{t['speaker'].upper()}] {t['text']}"),
+                       new_x="LMARGIN", new_y="NEXT")
+    return bytes(pdf.output())
+
+
+def send_manager_email(call_log) -> bool:
+    """B2: email the manager a call summary with the transcript + booking as a PDF.
+    Reads SMTP_* + MANAGER_EMAIL from env; skips gracefully if unconfigured. Never raises."""
+    host = os.environ.get("SMTP_HOST")
+    to = os.environ.get("MANAGER_EMAIL")
+    if not (host and to):
+        logger.info("SMTP/manager email not configured; skipping email summary.")
+        return False
+    try:
+        import smtplib
+        from email.message import EmailMessage
+        port = int(os.environ.get("SMTP_PORT", "587"))
+        user = os.environ.get("SMTP_USER", "")
+        pw = os.environ.get("SMTP_PASS", "")
+        sender = os.environ.get("SMTP_FROM", user or "noreply@spicegarden.local")
+        msg = EmailMessage()
+        msg["Subject"] = f"Spice Garden call summary - {call_log.outcome}"
+        msg["From"] = sender
+        msg["To"] = to
+        msg.set_content(
+            f"Call {call_log.call_id}\nOutcome: {call_log.outcome}\n"
+            f"Caller: {call_log.caller_id}\n\nFull transcript + booking attached as PDF."
+        )
+        msg.add_attachment(build_call_pdf(call_log), maintype="application",
+                           subtype="pdf", filename=f"call-{call_log.call_id[:8]}.pdf")
+        with smtplib.SMTP(host, port, timeout=15) as s:
+            s.starttls()
+            if user:
+                s.login(user, pw)
+            s.send_message(msg)
+        logger.info("manager email sent")
+        return True
+    except Exception as exc:
+        logger.warning(f"manager email failed: {exc}")
+        return False
+
+
 def get_conn():
     """Open a short-lived connection to the restaurant database.
     Reads DATABASE_URL from your .env (same DB the dashboard uses)."""
@@ -89,6 +161,7 @@ class CallLogger:
         self.caller_id = caller_id
         self.start_time = datetime.now(timezone.utc)
         self.outcome = "unknown"
+        self.booking_summary = None
         self._turns: list[dict] = []
         self._metrics: list[dict] = []
         self._n = 0
@@ -350,11 +423,18 @@ class RestaurantHost(Agent):
             booking_id = cur.fetchone()["id"]
             conn.commit()
 
+        when_str = f"{d:%A %d %B} at {t:%I:%M %p}"
         log = getattr(self, "_call_log", None)
         if log:
             log.outcome = "booked"
-
-        when_str = f"{d:%A %d %B} at {t:%I:%M %p}"
+            log.booking_summary = {
+                "Name": customer_name,
+                "Party size": party_size,
+                "When": when_str,
+                "Table": table["table_number"],
+                "Confirmation #": booking_id,
+                "Special requests": special_requests or "-",
+            }
         await send_whatsapp(
             "Spice Garden - booking confirmed!\n"
             f"Name: {customer_name}\n"
@@ -448,6 +528,8 @@ async def entrypoint(ctx: agents.JobContext):
         try:
             cid, n = call_log.save()
             logger.info(f"saved call_log {cid} outcome={call_log.outcome} turns={n}")
+            if call_log.outcome == "booked":
+                await asyncio.to_thread(send_manager_email, call_log)
         except Exception as exc:
             logger.warning(f"failed to save call log: {exc}")
 
