@@ -118,7 +118,7 @@ WhatsApp, `BACKGROUND_AUDIO=1` for ambience. **Secrets live only in `.env`, whic
 | README + setup + self-assessment | ✅ Done | this file |
 | **Bonus B2** WhatsApp confirmation | 🟡 Partial | WhatsApp ✅ (`send_whatsapp`); email+PDF ❌ |
 | **Bonus B1** Multilingual (Hindi/Telugu/Tamil) | ❌ Not done | — |
-| **Bonus B3** Concurrency stress test | ❌ Not done | — |
+| **Bonus B3** Concurrency stress test (20 concurrent calls) | ✅ Done | `stress_test.py`, `STRESS_TEST.md` |
 | Loom video | ⏺️ To record | — |
 
 \* `docker-compose.yml` is validated (`docker compose config` passes); a full `up` pulls several GB
