@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Separate project that happens to live in this folder — NOT part of this repo (has its own secrets)
+agency_backend/
+
 # Python
 .venv/
 __pycache__/

@@ -41,13 +41,16 @@ TTS_BASE_URL = os.getenv("TTS_BASE_URL", "http://localhost:8880/v1")
 TTS_VOICE = os.getenv("TTS_VOICE", "af_bella")
 
 
-async def send_whatsapp(body: str) -> bool:
+async def send_whatsapp(body: str, to_number: str | None = None) -> bool:
     """Send a WhatsApp message via Twilio's REST API (sandbox). Never raises —
-    a failed notification must not break the booking."""
+    a failed notification must not break the booking. Delivers to the caller's own
+    number when known (to_number), else the BOOKING_NOTIFY_WHATSAPP fallback.
+    NOTE: with the Twilio sandbox the recipient must have joined the sandbox, or
+    delivery fails with error 63015 even though the API call returns 201."""
     sid = os.environ.get("TWILIO_ACCOUNT_SID")
     token = os.environ.get("TWILIO_AUTH_TOKEN")
     sender = os.environ.get("TWILIO_WHATSAPP_FROM")     # e.g. 'whatsapp:+14155238886'
-    to = os.environ.get("BOOKING_NOTIFY_WHATSAPP")      # e.g. '919752713547'
+    to = to_number or os.environ.get("BOOKING_NOTIFY_WHATSAPP")
     if not (sid and token and sender and to):
         logger.info("WhatsApp not configured; skipping notification.")
         return False
@@ -444,7 +447,8 @@ class RestaurantHost(Agent):
             f"Party: {party_size}\n"
             f"When: {when_str}\n"
             f"Table: {table['table_number']}\n"
-            f"Confirmation #: {booking_id}"
+            f"Confirmation #: {booking_id}",
+            to_number=getattr(self, "_caller_phone", None),
         )
         return (f"Booking confirmed for {customer_name}, {party_size} people, "
                 f"on {when_str}, table {table['table_number']}. "
@@ -495,6 +499,7 @@ async def entrypoint(ctx: agents.JobContext):
     call_log = CallLogger(anonymize(raw_caller))
     agent = RestaurantHost()
     agent._call_log = call_log
+    agent._caller_phone = raw_caller   # WhatsApp: deliver the confirmation to the caller
 
     @session.on("conversation_item_added")
     def _on_item(ev):
