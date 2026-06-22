@@ -3,7 +3,7 @@
 A fully self-hosted LiveKit voice agent for restaurant table bookings and menu queries.
 **Restaurant:** *Spice Garden* — North Indian + Indo-Chinese · open 12:00–23:00 daily · max party 12.
 
-**Self-hosted stack:** LiveKit (media/transport) · LiveKit Agents (Python) · Silero VAD · **Whisper** (faster-distil-whisper-small via Speaches) · **Ollama** (qwen2.5:3b) · **Kokoro** TTS · **PostgreSQL**.
+**Self-hosted stack:** LiveKit (media/transport) · LiveKit Agents (Python) · Silero VAD · **Whisper** (faster-distil-whisper-small via Speaches) · **Ollama** (qwen2.5:7b) · **Kokoro** TTS · **PostgreSQL**.
 
 > **Scope note (deviation):** the live *phone* demo uses **LiveKit Cloud purely as the SIP/telephony pipe** (a Vobiz PSTN number → Cloud SIP → our worker). All intelligence (STT/LLM/TTS) stays self-hosted on localhost. The `docker compose` variant is fully self-hosted with a self-hosted `livekit-server`.
 
@@ -38,7 +38,7 @@ A fully self-hosted LiveKit voice agent for restaurant table bookings and menu q
  ┌──────────┐      ┌────────────┐        ┌────────────┐
  │  STT     │      │   LLM      │        │   TTS      │
  │ Speaches │      │  Ollama    │        │  Kokoro    │
- │ Whisper  │      │ qwen2.5:3b │        │  af_bella  │
+ │ Whisper  │      │ qwen2.5:7b │        │  af_bella  │
  │ (CPU)    │      │ (GPU)      │        │  (CPU)     │
  └──────────┘      └────────────┘        └────────────┘
                                     
@@ -82,15 +82,15 @@ The LiveKit LLM node **retries the request up to 4 times** with exponential back
 | **livekit-server** | LiveKit (OSS) | Industry-standard WebRTC SFU with first-class **SIP** + a Python **Agents** SDK; sub-150 ms media path; tiny footprint (single Go binary). |
 | **agent worker** | LiveKit Agents (Python) 1.6.x | Built-in VAD/STT/LLM/TTS orchestration, interruption handling, metrics + transcript events; we use the **plugin pattern** (not the cloud `inference.*` helpers) to stay self-hosted. |
 | **STT** | **faster-distil-whisper-small.en** via **Speaches** | see below |
-| **LLM** | **Ollama + qwen2.5:3b** (GPU) | Strong instruction-following + tool-calling for its size; **~0.7–1.2 s** time-to-first-token on a 6 GB RTX 3050 (Q4, ~2 GB VRAM). Grounded entirely in DB tool results so domain accuracy = the data, not the model's memory. |
+| **LLM** | **Ollama + qwen2.5:7b** (GPU) | Upgraded from `3b` after the 3B proved unreliable at tool-calling (hallucinated bookings without calling `create_booking`); the 7B calls tools reliably. ~5 GB resident on the 6 GB RTX 3050 (partial GPU offload), **~1.5–2.5 s** warm TTFT. Grounded entirely in DB tool results, so domain accuracy = the data, not the model's memory. *(The `docker compose` stack defaults to `3b` for portability to CPU-only hosts; set `LLM_MODEL=qwen2.5:7b` where VRAM allows.)* |
 | **TTS** | **Kokoro** (kokoro-fastapi), voice `af_bella` | see below |
 | **Booking DB** | **PostgreSQL** | Transactional integrity for availability/booking (no double-booking), `JSONB` for transcripts, trivial to self-host; the one store doubles as the log store. |
 | **Transcript / call-log store** | **PostgreSQL `call_logs`** (JSONB) | Same DB → a call record + all its turns write in **one atomic INSERT**; `JSONB` indexes/queries power the dashboard without a second datastore. |
 
 ### STT — faster-distil-whisper-small.en (Speaches, CPU)
-- **Latency:** `distil-small.en` runs at several-times-realtime on the 6-core Ryzen; ~0.5–2 s per utterance. (It is, honestly, our latency bottleneck at ~3.5 s including VAD endpointing — a GPU or `base.en` would cut this.)
-- **Domain accuracy:** Whisper is robust on **numbers, dates and times** (table sizes, "seven thirty PM") and handles Indian-English far better than Vosk/Sherpa small models; it can still mishear similar names ("Aaron"/"Erin") — addressed by a read-back step (Q13).
-- **Footprint:** runs on **CPU**, leaving the 6 GB GPU entirely for the LLM. Speaches gives us an OpenAI-compatible REST surface so one plugin drives STT, LLM and TTS.
+- **Latency:** `distil-small.en` is our honest bottleneck at **~3.5 s** (incl. VAD endpointing). It runs on the **CPU by deliberate choice** — the 6 GB GPU is spent on the reliable 7B LLM (see Q3). The fix is **hardware, not a smaller model**: the same model on a dedicated/larger GPU drops this to sub-second with no accuracy loss.
+- **Domain accuracy:** Whisper is robust on **numbers, dates and times** (table sizes, "seven thirty PM") and handles Indian-English far better than Vosk/Sherpa small models; it can still mishear similar names ("Aaron"/"Erin") — addressed by a read-back step (Q13). We **keep this model rather than a smaller/faster one** precisely to protect name and number accuracy.
+- **Footprint:** runs on **CPU**, leaving the 6 GB GPU for the **7B LLM**. Speaches gives us an OpenAI-compatible REST surface so one plugin drives STT, LLM and TTS.
 
 ### TTS — Kokoro (af_bella, CPU)
 - **Latency:** Kokoro-82M is tiny; ~1.2–2.0 s time-to-first-byte on CPU — acceptable for a phone host.
@@ -107,14 +107,16 @@ From "caller stops speaking" → "agent starts speaking":
 |---|---|---|---|
 | 1. VAD silence detection | 150–300 ms | **~550 ms** | `min_silence_duration=0.55 s` (tunable down) |
 | 2. STT transcription | 150–400 ms | **~3.3–4.9 s** | Whisper on **CPU** — the dominant cost |
-| 3. LLM time-to-first-token | 200–500 ms | **~0.7–1.2 s** (warm) | qwen2.5:3b on GPU; ~8–20 s only on a cold load |
+| 3. LLM time-to-first-token | 200–500 ms | **~1.5–2.5 s** (warm) | qwen2.5:7b, partial GPU offload on the 6 GB card; ~8–20 s on a cold load |
 | 4. TTS time-to-first-chunk | 150–400 ms | **~1.2–2.0 s** | Kokoro on CPU |
 | 5. LiveKit packet delivery | 50–150 ms | **~50–150 ms** | WebRTC; +1 RTT to Cloud region (India West) on the phone demo |
-| **Total** | **~1.2–2.5 s** | **~6–7 s observed** | |
+| **Total** | **~1.2–2.5 s** | **~7 s observed** (STT-dominated) | |
 
 **Maximum acceptable:** **~1.5 s** to first audio is the gold standard for a natural phone conversation; up to **~2.5 s** is tolerable if the agent emits a quick acknowledgement ("sure, let me check…") to cover the gap. Beyond ~3 s callers start talking over the agent.
 
-**Why ours is higher and how to close it:** the gap is almost entirely **CPU Whisper (~3.5 s)**. Fixes, in order of impact: (a) move STT to the **GPU** (or `base.en`/`large-v3-turbo` int8) → STT to sub-second; (b) shrink `min_silence_duration` to ~0.35 s; (c) keep the LLM **pinned in VRAM** (we do — `keep_alive`) so TTFT stays ~0.7 s; (d) for the phone demo, host LiveKit in-region. With STT on GPU the budget lands around **2–2.5 s**, inside the acceptable band.
+**Why ours is higher — the real constraint (not an oversight).** The gap is almost entirely **Whisper transcribing on the CPU (~3.5 s)**, and it's on the CPU by a deliberate **VRAM-budget** decision. This box has a single **6 GB** GPU, and we spend it on the **LLM**. We began on `qwen2.5:3b` (~2 GB), which left room for GPU-STT — but the 3B proved **unreliable at tool-calling** (it would narrate "let me check…", or even *invent a confirmation number*, without ever calling `create_booking`). Moving to **`qwen2.5:7b`** (~5 GB resident) made bookings reliable but **fills the card**, leaving no room for a useful GPU Whisper. So the tradeoff is explicit and intentional: **a reliable LLM on the GPU + STT on the CPU**, rather than fast GPU-STT paired with a flaky LLM. Since mishearing a name or booking a phantom table is worse than a slower reply, we optimised **correctness over latency**.
+
+**How we'd close it in production — without dropping STT quality** (we deliberately do *not* shrink the model): (a) give **STT its own GPU**, or use one larger card (≥12 GB) so the *same* `distil-small` (or `large-v3-turbo`) runs on the GPU → **sub-second, identical accuracy**; (b) **split the services across two hosts** (LLM box + STT box), which also removes the single-machine CPU contention behind call jitter; (c) keep the LLM **pinned in VRAM** (already done via `keep_alive`); (d) trim `min_silence_duration` to ~0.35 s and mask any residual gap with an instant acknowledgement. The route to the **~2–2.5 s** band is therefore **more (or partitioned) hardware, not a smaller model** — a deployment change, not an accuracy compromise.
 
 ---
 

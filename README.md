@@ -26,7 +26,7 @@ persisted locally in PostgreSQL.
 | Agent | **LiveKit Agents** (Python) | — |
 | VAD | **Silero** (tuned) | in-proc |
 | STT | **Whisper** `faster-distil-whisper-small.en` via **Speaches** | 8000 |
-| LLM | **Ollama** `qwen2.5:3b` (GPU) | 11434 |
+| LLM | **Ollama** `qwen2.5:7b` (GPU) | 11434 |
 | TTS | **Kokoro** (`kokoro-fastapi`, voice `af_bella`) | 8880 |
 | DB + logs | **PostgreSQL** (`restaurant_db`) | 5432 |
 | Dashboards | **FastAPI** (admin + call log) | 8001 |
@@ -64,7 +64,7 @@ pip install -r requirements.txt
 python -m livekit.agents download-files                # Silero VAD model
 
 # 2) Self-hosted model servers
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:3b      # quick start; for reliable tool-calling on a GPU use qwen2.5:7b (+ set LLM_MODEL)
 docker run -d --name speaches -p 8000:8000 ghcr.io/speaches-ai/speaches:latest-cpu
 curl -X POST "http://localhost:8000/v1/models/Systran/faster-distil-whisper-small.en"   # install STT model
 docker run -d --name kokoro   -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:v0.5.0
@@ -156,11 +156,18 @@ spice-garden/
 passes); a full `up` pulls several GB of images/models so it's the run-path rather than something executed in CI.
 
 ## Known limitations / honest notes
-- **LLM reliability:** `qwen2.5:3b` is marginal at tool-calling (occasionally narrates "let me check"
-  instead of calling the tool, or over-confirms). Mitigated with strict prompt rules + a code guard
-  that rejects empty `customer_name`. A 7B model is more reliable but VRAM-tight on a 6 GB GPU.
-- **Latency:** Whisper on CPU is the bottleneck (~3.5 s); moving STT to GPU closes most of the gap.
+- **LLM reliability → the VRAM tradeoff:** `qwen2.5:3b` was marginal at tool-calling (narrated "let me
+  check" instead of calling the tool, even invented confirmation numbers), so we run **`qwen2.5:7b`**,
+  which books reliably (mitigated further with strict prompt rules + a code guard rejecting empty
+  `customer_name`). The 7B fills the **6 GB** GPU — which is precisely *why* STT stays on the CPU.
+  (`docker compose` defaults to `3b` for portability to CPU-only hosts; set `LLM_MODEL=qwen2.5:7b`
+  where VRAM allows.)
+- **Latency (the honest one):** Whisper on CPU is the bottleneck (~3.5 s). We deliberately prioritised
+  a reliable LLM on the GPU over fast STT — a misheard name is worse than a slower reply. The
+  production fix is **more hardware, not a smaller model**: give STT its own (or a larger) GPU and the
+  *same* model runs sub-second with identical accuracy. See [`docs/ANSWERS.md`](docs/ANSWERS.md) Q3.
 - **Real-phone jitter:** running STT+LLM+TTS+WebRTC on one laptop can starve the audio threads;
-  free CPU/RAM (and keep ambience off) for the smoothest call.
+  free CPU/RAM (and keep ambience off) for the smoothest call. Splitting services across hosts
+  removes this in production.
 - **Scope deviation:** the live phone demo uses LiveKit **Cloud** as the SIP transport only; all AI
   is self-hosted. The `docker compose` stack is fully self-hosted (self-hosted `livekit-server`).
