@@ -34,6 +34,7 @@ logger = logging.getLogger("spice-garden")
 # Service endpoints — default to localhost; docker-compose overrides with service names.
 STT_BASE_URL = os.getenv("STT_BASE_URL", "http://localhost:8000/v1")
 STT_MODEL = os.getenv("STT_MODEL", "Systran/faster-distil-whisper-small.en")
+STT_LANGUAGE = os.getenv("STT_LANGUAGE", "en")  # "" = Whisper auto-detect (B1 multilingual)
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:3b")
 TTS_BASE_URL = os.getenv("TTS_BASE_URL", "http://localhost:8880/v1")
@@ -162,11 +163,12 @@ class CallLogger:
         self.start_time = datetime.now(timezone.utc)
         self.outcome = "unknown"
         self.booking_summary = None
+        self.last_user_language = None
         self._turns: list[dict] = []
         self._metrics: list[dict] = []
         self._n = 0
 
-    def add_turn(self, speaker: str, text: str, confidence=None):
+    def add_turn(self, speaker: str, text: str, confidence=None, language=None):
         if not text:
             return
         self._n += 1
@@ -178,6 +180,7 @@ class CallLogger:
             "started_at": now,
             "ended_at": now,
             "confidence": confidence,    # STT confidence for caller turns; null for agent
+            "language": language,        # B1: detected language for caller turns
         })
 
     def add_metric(self, kind: str, value: float):
@@ -461,7 +464,8 @@ async def entrypoint(ctx: agents.JobContext):
                 base_url=STT_BASE_URL,
                 api_key="not-needed",
                 model=STT_MODEL,
-                language="en",
+                # B1: omit `language` (STT_LANGUAGE="") so Whisper auto-detects the language.
+                **({"language": STT_LANGUAGE} if STT_LANGUAGE else {}),
             ),
             vad=vad,
         ),
@@ -500,15 +504,17 @@ async def entrypoint(ctx: agents.JobContext):
             text = getattr(item, "text_content", None)
             if role in ("user", "assistant") and text:
                 speaker = "caller" if role == "user" else "agent"
-                call_log.add_turn(speaker, text)
-                logger.info(f"turn_end [{speaker}]: {text[:80]}")
+                lang = call_log.last_user_language if speaker == "caller" else None
+                call_log.add_turn(speaker, text, language=lang)
+                logger.info(f"turn_end [{speaker}] ({lang or 'en'}): {text[:80]}")
         except Exception as exc:
             logger.warning(f"transcript log error: {exc}")
 
     @session.on("user_input_transcribed")
     def _on_user_tx(ev):
         if getattr(ev, "is_final", False):
-            logger.info("turn_start [caller] (final transcript received)")
+            call_log.last_user_language = getattr(ev, "language", None)
+            logger.info(f"turn_start [caller] lang={call_log.last_user_language}")
 
     @session.on("metrics_collected")
     def _on_metrics(ev):

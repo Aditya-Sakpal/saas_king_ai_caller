@@ -117,7 +117,7 @@ WhatsApp, `BACKGROUND_AUDIO=1` for ambience. **Secrets live only in `.env`, whic
 | Seed file (SQL) | ✅ Done | `dashboard/seed.sql` |
 | README + setup + self-assessment | ✅ Done | this file |
 | **Bonus B2** Post-call notifications (WhatsApp + email PDF) | ✅ Done | `send_whatsapp` + `send_manager_email`/`build_call_pdf` in `agent.py` |
-| **Bonus B1** Multilingual (Hindi/Telugu/Tamil) | ❌ Not done | — |
+| **Bonus B1** Multilingual (auto-detect + per-turn language labels) | 🟡 Partial | Whisper auto-detect + LLM in-language + transcript language labels ✅; Kokoro TTS has no Telugu/Tamil voice, so spoken output is English/Hindi only (set `STT_LANGUAGE=""` + a multilingual `STT_MODEL`, and `TTS_VOICE=hf_alpha` for Hindi) |
 | **Bonus B3** Concurrency stress test (20 concurrent calls) | ✅ Done | `stress_test.py`, `STRESS_TEST.md` |
 | Loom video | ⏺️ To record | — |
 
