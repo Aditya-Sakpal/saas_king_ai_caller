@@ -1,0 +1,21 @@
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Local test artifacts
+*.wav
+_verify.py
+_tts_check.py
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

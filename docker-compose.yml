@@ -1,0 +1,157 @@
+name: spice-garden
+
+# Fully self-hosted stack: `docker compose up` brings up every component.
+# (The live PHONE demo additionally used LiveKit Cloud as the SIP pipe — see README.
+#  This compose is the no-cloud variant: a self-hosted livekit-server you connect a
+#  web client to, with all STT/LLM/TTS staying local.)
+
+services:
+  # ─────────────── Database ───────────────
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: restaurant_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./dashboard/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./dashboard/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    ports:
+      - "5433:5432"   # host 5433 to avoid clashing with a native Postgres on 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d restaurant_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ─────────────── LiveKit media server ───────────────
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    healthcheck:
+      # livekit-server's HTTP port answers on 7880; busybox wget ships in the image.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7880/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ─────────────── LLM (Ollama) ───────────────
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    # GPU (optional) — uncomment if the host has the NVIDIA Container Toolkit:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - { driver: nvidia, count: all, capabilities: [gpu] }
+
+  ollama-pull:                       # one-shot: pull the model, then exit
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama", "pull", "qwen2.5:3b"]
+    restart: "no"
+
+  # ─────────────── STT (Whisper via Speaches) ───────────────
+  stt:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    volumes:
+      - hf-cache:/home/ubuntu/.cache/huggingface/hub
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
+  stt-pull:                          # one-shot: install the small Whisper model, then exit
+    image: curlimages/curl:latest
+    depends_on:
+      stt:
+        condition: service_healthy
+    entrypoint: ["curl", "-fsS", "-X", "POST",
+                 "http://stt:8000/v1/models/Systran/faster-distil-whisper-small.en"]
+    restart: "no"
+
+  # ─────────────── TTS (Kokoro) ───────────────
+  tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.5.0
+    ports:
+      - "8880:8880"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8880/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
+  # ─────────────── The voice agent worker ───────────────
+  agent:
+    build: .
+    command: python agent.py start
+    depends_on:
+      postgres:    { condition: service_healthy }
+      livekit:     { condition: service_healthy }
+      ollama:      { condition: service_healthy }
+      ollama-pull: { condition: service_completed_successfully }
+      stt:         { condition: service_healthy }
+      stt-pull:    { condition: service_completed_successfully }
+      tts:         { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/restaurant_db
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: secret
+      AGENT_NAME: ""                         # empty = automatic dispatch (web client)
+      OPENAI_API_KEY: not-needed
+      STT_BASE_URL: http://stt:8000/v1
+      LLM_BASE_URL: http://ollama:11434/v1
+      TTS_BASE_URL: http://tts:8880/v1
+      STT_MODEL: Systran/faster-distil-whisper-small.en
+      LLM_MODEL: qwen2.5:3b
+      TTS_VOICE: af_bella
+      BACKGROUND_AUDIO: ""
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f agent.py || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  # ─────────────── Admin + call-log dashboard ───────────────
+  dashboard:
+    build: .
+    command: python dashboard/app.py
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/restaurant_db
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8001/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  pgdata:
+  ollama:
+  hf-cache:

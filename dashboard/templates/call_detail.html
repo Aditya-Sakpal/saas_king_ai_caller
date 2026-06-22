@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Spice Garden — Call {{ call.call_id }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body  { font-family: system-ui, -apple-system, sans-serif; margin: 0; background:#f6f7f9; color:#1f2430; }
+    header{ background:#7b1e1e; color:#fff; padding:16px 24px; }
+    header h1 { margin:0; font-size:18px; }
+    header a  { color:#ffe; font-size:13px; }
+    .wrap { max-width: 900px; margin: 24px auto; padding: 0 16px; display:grid; gap:24px; }
+    .card { background:#fff; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,.08); overflow:hidden; }
+    .card h2 { margin:0; padding:14px 18px; font-size:16px; border-bottom:1px solid #eee; }
+    .card .body { padding:14px 18px; }
+    .meta { font-size:13px; color:#555; }
+    .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+    .ok{background:#e3f6e9;color:#1a7f43;} .info{background:#e7eefc;color:#2747b8;}
+    .warn{background:#fff2dd;color:#9a6400;} .no{background:#fde8e8;color:#b3261e;} .mut{background:#eee;color:#777;}
+    .turn { padding:10px 18px; border-bottom:1px solid #f4f4f4; display:flex; gap:12px; align-items:flex-start; }
+    .who { flex:0 0 64px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+    .who.caller { color:#2747b8; } .who.agent { color:#7b1e1e; }
+    .txt { flex:1; font-size:14px; }
+    .conf { flex:0 0 auto; font-size:11px; color:#999; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📞 Call detail</h1>
+    <a href="/calls">← back to call log</a>
+  </header>
+
+  {% set cls = {'booked':'ok','menu_only':'info','transferred':'info','cancelled':'warn','failed':'no','unknown':'mut'} %}
+
+  <div class="wrap">
+    <div class="card">
+      <h2>Call {{ call.call_id }}</h2>
+      <div class="body meta">
+        Caller <b>{{ call.caller_id }}</b> &middot;
+        {{ call.start_time.strftime('%Y-%m-%d %H:%M:%S') }} UTC &middot;
+        {{ call.duration_seconds }}s &middot;
+        <span class="badge {{ cls.get(call.booking_outcome,'mut') }}">{{ call.booking_outcome.replace('_',' ')|title }}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Transcript ({{ call.transcript|length }} turns)</h2>
+      {% for t in call.transcript %}
+      <div class="turn">
+        <span class="who {{ t.speaker }}">{{ t.speaker }}</span>
+        <span class="txt">{{ t.text }}</span>
+        {% if t.confidence is not none %}<span class="conf">conf {{ '%.2f'|format(t.confidence) }}</span>{% endif %}
+      </div>
+      {% else %}
+      <div class="turn"><span class="txt mut">No transcript captured.</span></div>
+      {% endfor %}
+    </div>
+
+    <div class="card">
+      <h2>Per-turn latency (STT / LLM / TTS)</h2>
+      <div class="body"><canvas id="chart" height="110"></canvas></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const metrics = {{ metrics_json | safe }};
+    const byType = {};
+    metrics.forEach((m) => { (byType[m.type] = byType[m.type] || []).push(Math.round(m.value * 1000)); });
+    const colors = { 'stt.duration': '#1a7f43', 'llm.ttft': '#2747b8', 'tts.ttfb': '#b3261e' };
+    const labels = { 'stt.duration': 'STT (ms)', 'llm.ttft': 'LLM TTFT (ms)', 'tts.ttfb': 'TTS TTFB (ms)' };
+    const n = Math.max(0, ...Object.values(byType).map((a) => a.length));
+    const datasets = Object.keys(byType).map((t) => ({
+      label: labels[t] || t,
+      data: byType[t],
+      backgroundColor: colors[t] || '#888',
+    }));
+    new Chart(document.getElementById('chart'), {
+      type: 'bar',
+      data: { labels: Array.from({ length: n }, (_, i) => 'turn ' + (i + 1)), datasets },
+      options: { responsive: true, scales: { y: { title: { display: true, text: 'milliseconds' } } } }
+    });
+  </script>
+</body>
+</html>
