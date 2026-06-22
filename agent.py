@@ -119,7 +119,7 @@ def send_manager_email(call_log) -> bool:
         from email.message import EmailMessage
         port = int(os.environ.get("SMTP_PORT", "587"))
         user = os.environ.get("SMTP_USER", "")
-        pw = os.environ.get("SMTP_PASS", "")
+        pw = os.environ.get("SMTP_PASS", "").replace(" ", "")  # Gmail app passwords show with spaces
         sender = os.environ.get("SMTP_FROM", user or "noreply@spicegarden.local")
         msg = EmailMessage()
         msg["Subject"] = f"Spice Garden call summary - {call_log.outcome}"
