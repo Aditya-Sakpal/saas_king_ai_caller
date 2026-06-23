@@ -476,6 +476,7 @@ async def entrypoint(ctx: agents.JobContext):
         llm=openai.LLM.with_ollama(
             model=LLM_MODEL,
             base_url=LLM_BASE_URL,
+            temperature=0.4,   # lower = follows the tool-calling rules more reliably
         ),
         tts=openai.TTS(
             model="tts-1",
